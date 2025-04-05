@@ -2,7 +2,11 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from src.config import Config
 from src.models import db  #db from models
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
+# Load environment variables
 def create_app(config_class=Config):
     """Factory function to create and configure the Flask app."""
     
