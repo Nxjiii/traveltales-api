@@ -2,7 +2,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from src.models import User, db
 
 # Initialise Blueprint for auth routes
@@ -63,34 +63,46 @@ def register():
 # -------------------------------------------------------------------
 @auth_bp.route('/login', methods=['POST'])
 def login():
+    print("Login endpoint hit!")
     """
     Authenticate user and return JWT token.
-    
+
     Request Body (JSON):
         {
             "email": "user@example.com",
             "password": "securepassword123"
         }
-    
+
     Returns:
-        - 200: Success (returns token)
+        - 200: Success (returns token and message)
         - 401: Invalid credentials
     """
+
     data = request.get_json()
     user = User.query.filter_by(email=data['email']).first()
-    
+
     # Validate credentials
     if not user or not check_password_hash(user.password_hash, data['password']):
         return jsonify({'error': 'Invalid email or password'}), 401
-        
+
+
     # Generate JWT token (expires 1 hour)
     token = jwt.encode(
         {
             'user_id': user.id,
-            'exp': datetime.utcnow() + timedelta(hours=1)
+            'exp': datetime.now(timezone.utc) + timedelta(hours=1)
         },
-        current_app.config['SECRET_KEY'],  # From Config
+        current_app.config['SECRET_KEY'],
         algorithm='HS256'
     )
+
+    return jsonify({
+        'message': f"Login successful for {user.email}. JWT token generated.",   #display the email of the user and that token is generated
+    }), 200
+
     
-    return jsonify({'token': token}), 200
+    # Debugging line to check token generation and encryption
+  #  print("Generated JWT:", token)
+  #  return jsonify({'token': token}), 200
+# ------------------------------------------------------------------- #
+    

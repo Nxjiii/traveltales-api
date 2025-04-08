@@ -1,7 +1,7 @@
 # src/models.py
 from flask_sqlalchemy import SQLAlchemy
 
-# single db instance to be imported
+# db instance to be imported
 db = SQLAlchemy()
 
 class User(db.Model):
@@ -17,3 +17,5 @@ class APIKey(db.Model):
     key = db.Column(db.String(64), unique=True, nullable=False)  # Randomly generated key
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Links to User
     is_active = db.Column(db.Boolean, default=True)  # Can revoke keys
+
+    #commands to confirm db entries sqlite3 db/database.db --> .tables --> SELECT id, email, passowrd_hash FROM user;
