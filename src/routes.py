@@ -3,7 +3,10 @@ from flask import Blueprint, request, jsonify, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from datetime import datetime, timezone, timedelta
-from src.models import User, db
+from src.models import User, db, APIKey
+import requests
+import secrets
+
 
 # Initialise Blueprint for auth routes
 auth_bp = Blueprint('auth', __name__, url_prefix='/api')
@@ -65,7 +68,7 @@ def register():
 def login():
     print("Login endpoint hit!")
     """
-    Authenticate user and return JWT token.
+    Authenticate user and return JWT token and API key.
 
     Request Body (JSON):
         {
@@ -74,10 +77,9 @@ def login():
         }
 
     Returns:
-        - 200: Success (returns token and message)
+        - 200: Success (returns token, API key, and message)
         - 401: Invalid credentials
     """
-
     data = request.get_json()
     user = User.query.filter_by(email=data['email']).first()
 
@@ -85,8 +87,17 @@ def login():
     if not user or not check_password_hash(user.password_hash, data['password']):
         return jsonify({'error': 'Invalid email or password'}), 401
 
+    # Generate or fetch API key for the user
+    existing_key = APIKey.query.filter_by(user_id=user.id, is_active=True).first()
+    if existing_key:
+        api_key = existing_key.key
+    else:
+        api_key = secrets.token_hex(32)  # 64-character hex string
+        new_api_key = APIKey(key=api_key, user_id=user.id)
+        db.session.add(new_api_key)
+        db.session.commit()
 
-    # Generate JWT token (expires 1 hour)
+    # Generate JWT token (expires in 1 hour)
     token = jwt.encode(
         {
             'user_id': user.id,
@@ -97,7 +108,9 @@ def login():
     )
 
     return jsonify({
-        'message': f"Login successful for {user.email}. JWT token generated.",   #display the email of the user and that token is generated
+        'message': f"Login successful for {user.email}. JWT token and API key generated.",
+        'token': token,
+        'api_key': api_key
     }), 200
 
     
@@ -105,4 +118,59 @@ def login():
   #  print("Generated JWT:", token)
   #  return jsonify({'token': token}), 200
 # ------------------------------------------------------------------- #
+
+
+
+
+# ------------------------------------------------------------------- #
+#                       COUNTRY DETAILS ENDPOINT
+# -------------------------------------------------------------------
+@auth_bp.route('/countries/<country_name>', methods=['GET'])
+def get_country_info(country_name):
+    """
+    Fetch country details from the RestCountries API.
+    This endpoint requires API key authentication.
     
+    Request Headers:
+        Authorization: Bearer <API_KEY>
+    
+    Parameters:
+        country_name (str): The country name to fetch details for.
+        
+    Returns:
+        - 200: Country data successfully retrieved.
+        - 401: Invalid API key or missing API key.
+        - 404: Country not found.
+    """
+    # Extract API key from Authorization header
+    api_key = request.headers.get('Authorization')
+
+    if not api_key:
+        return jsonify({'error': 'API key is required'}), 401
+    
+    # Check if the API key is valid
+    api_key = api_key.split(" ")[1]  # Remove "Bearer" part from the header
+    key = APIKey.query.filter_by(key=api_key, is_active=True).first()
+
+    if not key:
+        return jsonify({'error': 'Invalid or inactive API key'}), 401
+
+    # Fetch country data from RestCountries API
+    url = f"https://restcountries.com/v3.1/name/{country_name}"
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        country_data = response.json()[0]
+
+        # Extract relevant country details
+        country_info = {
+            'name': country_data['name']['common'],
+            'currency': list(country_data['currencies'].keys())[0] if 'currencies' in country_data else 'N/A',
+            'capital': country_data['capital'][0] if 'capital' in country_data else 'N/A',
+            'languages': list(country_data['languages'].values()) if 'languages' in country_data else ['N/A'],
+            'flag': country_data['flags']['png']
+        }
+
+        return jsonify(country_info), 200
+    else:
+        return jsonify({'error': 'Country not found'}), 404

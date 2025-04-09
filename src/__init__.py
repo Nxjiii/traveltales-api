@@ -5,6 +5,8 @@ from src.models import db  #db from models
 from dotenv import load_dotenv
 import os
 
+from flask import Flask, session
+
 load_dotenv()
 # Load environment variables
 def create_app(config_class=Config):
