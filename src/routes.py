@@ -58,33 +58,28 @@ def register():
         return jsonify({'message': 'User registered successfully'}), 201
     except Exception as e:
         db.session.rollback()
-        print(f"Database error: {e}")  # This will show error
-        return jsonify({'error': f"Registration failed: {str(e)}"}), 400
+        current_app.logger.error(f"Registration error: {str(e)}")  
+        return jsonify({'error': 'Registration failed. Please try again later.'}), 400  
 
 # ------------------------------------------------------------------- #
 #                          LOGIN ENDPOINT
 # -------------------------------------------------------------------
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    print("Login endpoint hit!")
-    """
-    Authenticate user and return JWT token and API key.
-
-    Request Body (JSON):
-        {
-            "email": "user@example.com",
-            "password": "securepassword123"
-        }
-
-    Returns:
-        - 200: Success (returns token, API key, and message)
-        - 401: Invalid credentials
-    """
+    current_app.logger.info("Login endpoint hit")
+    
     data = request.get_json()
+
+    # Validate that required fields are provided
+    if 'email' not in data or 'password' not in data:
+        current_app.logger.warning("Email or password not provided")
+        return jsonify({'error': 'Email and password are required'}), 400
+
     user = User.query.filter_by(email=data['email']).first()
 
     # Validate credentials
     if not user or not check_password_hash(user.password_hash, data['password']):
+        current_app.logger.warning(f"Failed login attempt for {data['email']}")
         return jsonify({'error': 'Invalid email or password'}), 401
 
     # Generate or fetch API key for the user
@@ -97,7 +92,7 @@ def login():
         db.session.add(new_api_key)
         db.session.commit()
 
-    # Generate JWT token (expires in 1 hour)
+    # Generate JWT token
     token = jwt.encode(
         {
             'user_id': user.id,
@@ -107,16 +102,16 @@ def login():
         algorithm='HS256'
     )
 
+    # Log successful login
+    current_app.logger.info(f"Login successful for {user.email}")
+
     return jsonify({
         'message': f"Login successful for {user.email}. JWT token and API key generated.",
         'token': token,
         'api_key': api_key
     }), 200
-
     
-    # Debugging line to check token generation and encryption
-  #  print("Generated JWT:", token)
-  #  return jsonify({'token': token}), 200
+
 # ------------------------------------------------------------------- #
 
 
