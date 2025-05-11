@@ -1,5 +1,6 @@
 # src/models.py
 from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, timezone
 
 # db instance to be imported
 db = SQLAlchemy()
@@ -17,5 +18,12 @@ class APIKey(db.Model):
     key = db.Column(db.String(64), unique=True, nullable=False)  # Randomly generated key
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Links to User
     is_active = db.Column(db.Boolean, default=True)  # Can revoke keys
+
+
+class TokenBlacklist(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String, unique=True, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
 
     #commands to confirm db entries sqlite3 db/database.db --> .tables --> SELECT id, email, passowrd_hash FROM user;
