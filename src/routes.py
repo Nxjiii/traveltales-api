@@ -3,7 +3,7 @@ from flask import Blueprint, request, jsonify, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from datetime import datetime, timezone, timedelta
-from src.models import User, db, APIKey
+from src.models import User, db, APIKey, TokenBlacklist
 import requests
 import secrets
 
@@ -121,6 +121,30 @@ def login():
 # -------------------------------------------------------------------
 
 
+@auth_bp.route('/logout', methods=['POST'])
+def logout():
+    auth_header = request.headers.get('Authorization')
+    
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'Authorization header is missing or invalid'}), 401
+    
+    token = auth_header.split(' ')[1]
+    
+    try:
+        # Decode  token to extract expiry
+        decoded = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
+        exp = datetime.fromtimestamp(decoded['exp'], tz=timezone.utc)
+    except jwt.ExpiredSignatureError:
+        return jsonify({'error': 'Token already expired'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Invalid token'}), 401
+
+    # token to blacklist
+    blacklisted = TokenBlacklist(token=token, expires_at=exp)
+    db.session.add(blacklisted)
+    db.session.commit()
+
+    return jsonify({'message': 'Logout successful. Token has been invalidated.'}), 200
 
 
 

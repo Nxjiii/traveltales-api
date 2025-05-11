@@ -24,6 +24,7 @@ class TokenBlacklist(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     token = db.Column(db.String, unique=True, nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     #commands to confirm db entries sqlite3 db/database.db --> .tables --> SELECT id, email, passowrd_hash FROM user;
+ 

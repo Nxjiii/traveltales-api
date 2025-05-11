@@ -4,6 +4,9 @@ from src.config import Config
 from src.models import db  #db from models
 from dotenv import load_dotenv
 import os
+from services.cleanup import cleanup_blacklist
+from apscheduler.schedulers.background import BackgroundScheduler
+
 
 from flask import Flask, session
 
@@ -31,6 +34,12 @@ def create_app(config_class=Config):
     with app.app_context():
         print("Creating tables...")  # Debugging line
         db.create_all()  # Create tables 
+
+    # Set up the scheduler for token cleanup
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(func=cleanup_blacklist, trigger="interval", hours=2)  # Run every 2 hours only runs when flask is running
+    scheduler.start()
+
     
     return app
 
