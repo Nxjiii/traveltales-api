@@ -1,9 +1,10 @@
 # src/routes.py
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, g
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from datetime import datetime, timezone, timedelta
 from src.models import User, db, APIKey, TokenBlacklist
+from middleware.auth import auth_required
 import requests
 import secrets
 
@@ -137,25 +138,17 @@ def login():
     
 
 # ------------------------------------------------------------------- #
-
-
-
-# ------------------------------------------------------------------- #
 #                       LOGOUT ENDPOINT
 # -------------------------------------------------------------------
 
 
 @auth_bp.route('/logout', methods=['POST'])
+@auth_required
 def logout():
-    auth_header = request.headers.get('Authorization')
-    
-    if not auth_header or not auth_header.startswith('Bearer '):
-        return jsonify({'error': 'Authorization header is missing or invalid'}), 401
-    
-    token = auth_header.split(' ')[1]
+    token = request.token  
     
     try:
-        # Decode  token to extract expiry
+        # Decode the token to extract expiry from request.token
         decoded = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
         exp = datetime.fromtimestamp(decoded['exp'], tz=timezone.utc)
     except jwt.ExpiredSignatureError:
@@ -163,16 +156,50 @@ def logout():
     except jwt.InvalidTokenError:
         return jsonify({'error': 'Invalid token'}), 401
 
-    # token to blacklist
+    # Token to blacklist
     blacklisted = TokenBlacklist(token=token, expires_at=exp)
     db.session.add(blacklisted)
     db.session.commit()
 
     return jsonify({'message': 'Logout successful. Token has been invalidated.'}), 200
 
+# ------------------------------------------------------------------- #
+#                       DELETE USER ENDPOINT
+# -------------------------------------------------------------------
 
+@auth_bp.route('/delete', methods=['DELETE'])
+@auth_required
+def delete_user():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return jsonify({'error': 'Authorization header is missing or invalid'}), 401
+    
+    token = auth_header.split(' ')[1]
+    
+    try:
+        # Decode the token
+        decoded = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
+        user_id = decoded['user_id']
+    except jwt.ExpiredSignatureError:
+        return jsonify({'error': 'Token has expired'}), 401
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Invalid token'}), 401
 
+    try:
+        # Delete user and related data
+        user = User.query.filter_by(id=user_id).first()
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Delete the user and related records (APIKey, etc.)
+        db.session.delete(user)
+        db.session.commit()
 
+        return jsonify({'message': 'User and related data deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting user: {str(e)}")
+        return jsonify({'error': 'Failed to delete user. Please try again later.'}), 500
 
 
 # ------------------------------------------------------------------- #
