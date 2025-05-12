@@ -4,7 +4,7 @@ from src.config import Config
 from src.models import db  #db from models
 from dotenv import load_dotenv
 import os
-from services.cleanup import cleanup_blacklist
+from src.services.cleanup import cleanup_blacklist
 from apscheduler.schedulers.background import BackgroundScheduler
 
 

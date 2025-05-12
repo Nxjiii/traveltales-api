@@ -19,8 +19,8 @@ def test_route():
     return "Test route is working", 200
     
 # ------------------------------------------------------------------- #
-#                       REGISTER ENDPOINT
-# -------------------------------------------------------------------
+#                       REGISTER ENDPOINT                                #
+# ------------------------------------------------------------------- #
 @auth_bp.route('/register', methods=['POST'])
 def register():
     print("Register endpoint hit!")  # Debugging line
@@ -34,9 +34,11 @@ def register():
         }
     
     Returns:
-        - 201: User created
+        - 201: User created with JWT token and API key
         - 400: Invalid input or email exists
     """
+
+    
     try:
         data = request.get_json()
         
@@ -48,18 +50,40 @@ def register():
         existing_user = User.query.filter_by(email=data['email']).first()
         if existing_user:
             return jsonify({'error': 'Email already registered'}), 400
-            
+        
         # Hash password and create user
         hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256')
         new_user = User(email=data['email'], password_hash=hashed_password)
         
         db.session.add(new_user)
         db.session.commit()
-        return jsonify({'message': 'User registered successfully'}), 201
+        
+        # Generate API key for the user
+        api_key = secrets.token_hex(32)  # 64-character hex string
+        new_api_key = APIKey(key=api_key, user_id=new_user.id)
+        db.session.add(new_api_key)
+        db.session.commit()
+        
+        # Generate JWT token
+        token = jwt.encode(
+            {
+                'user_id': new_user.id,
+                'exp': datetime.now(timezone.utc) + timedelta(hours=1)
+            },
+            current_app.config['SECRET_KEY'],
+            algorithm='HS256'
+        )
+        
+        return jsonify({
+            'message': f"User registered successfully. JWT token and API key generated.",
+            'token': token,
+            'api_key': api_key
+        }), 201
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Registration error: {str(e)}")  
-        return jsonify({'error': 'Registration failed. Please try again later.'}), 400  
+        current_app.logger.error(f"Registration error: {str(e)}")
+        return jsonify({'error': 'Registration failed. Please try again later.'}), 400
+
 
 # ------------------------------------------------------------------- #
 #                          LOGIN ENDPOINT
@@ -82,7 +106,7 @@ def login():
         current_app.logger.warning(f"Failed login attempt for {data['email']}")
         return jsonify({'error': 'Invalid email or password'}), 401
 
-    # Generate or fetch API key for the user
+    # fetch API key for the user or generate if they don't have one
     existing_key = APIKey.query.filter_by(user_id=user.id, is_active=True).first()
     if existing_key:
         api_key = existing_key.key
@@ -106,7 +130,7 @@ def login():
     current_app.logger.info(f"Login successful for {user.email}")
 
     return jsonify({
-        'message': f"Login successful for {user.email}. JWT token and API key generated.",
+        'message': f"Login successful for {user.email}. JWT token generated and API key provided.",
         'token': token,
         'api_key': api_key
     }), 200
