@@ -1,5 +1,6 @@
 # src/routes.py
 from flask import Blueprint, request, jsonify, current_app, g
+from flask_cors import cross_origin
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import re
@@ -27,6 +28,7 @@ def test_route():
 #                       REGISTER ENDPOINT                                #
 # ------------------------------------------------------------------- #
 @auth_bp.route('/register', methods=['POST'])
+@cross_origin()  
 @limiter.limit("5 per minute") 
 def register():
     print("Register endpoint hit!")  # Debugging line
@@ -43,7 +45,10 @@ def register():
         - 201: User created with JWT token and API key
         - 400: Invalid input or email exists
     """
-
+           # Check if the data is JSON
+    if not request.is_json:
+        current_app.logger.warning("Request is not JSON")
+        return jsonify({'error': 'Expected JSON data'}), 400
     
     try:
         data = request.get_json()
@@ -109,52 +114,65 @@ def register():
 #                          LOGIN ENDPOINT
 # -------------------------------------------------------------------
 @auth_bp.route('/login', methods=['POST'])
-@limiter.limit("5 per minute")  
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+@limiter.limit("5 per minute")
 def login():
     current_app.logger.info("Login endpoint hit")
     
-    data = request.get_json()
-
-    # Validate that required fields are provided
-    if 'email' not in data or 'password' not in data:
-        current_app.logger.warning("Email or password not provided")
-        return jsonify({'error': 'Email and password are required'}), 400
-
-    user = User.query.filter_by(email=data['email']).first()
-
-    # Validate credentials
-    if not user or not check_password_hash(user.password_hash, data['password']):
-        current_app.logger.warning(f"Failed login attempt for {data['email']}")
-        return jsonify({'error': 'Invalid email or password'}), 401
-
-    # fetch API key for the user or generate if they don't have one
-    existing_key = APIKey.query.filter_by(user_id=user.id, is_active=True).first()
-    if existing_key:
-        api_key = existing_key.key
-    else:
-        api_key = secrets.token_hex(32)  # 64-character hex string
-        new_api_key = APIKey(key=api_key, user_id=user.id)
-        db.session.add(new_api_key)
-        db.session.commit()
-
-    # Generate JWT token
-    token = jwt.encode(
-        {
-            'user_id': user.id,
-            'exp': datetime.now(timezone.utc) + timedelta(hours=1)
-        },
-        current_app.config['SECRET_KEY'],
-        algorithm='HS256'
-    )
-
-    # Log successful login
-    current_app.logger.info(f"Login successful for {user.email}")
-
-    return jsonify({
-        'message': f"Login successful for {user.email}. JWT token generated and API key provided.",
-        'token': token,
-        'api_key': api_key
-    }), 200
+    # Check if the data is JSON
+    if not request.is_json:
+        current_app.logger.warning("Request is not JSON")
+        return jsonify({'error': 'Expected JSON data'}), 400
+    
+    try:
+        data = request.get_json()
+        
+        # Log the received data 
+        current_app.logger.info(f"Login attempt for email: {data.get('email', 'not provided')}")
+        
+        # Validate that required fields are provided
+        if 'email' not in data or 'password' not in data:
+            current_app.logger.warning("Email or password not provided")
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        user = User.query.filter_by(email=data['email']).first()
+        
+        # Validate credentials
+        if not user or not check_password_hash(user.password_hash, data['password']):
+            current_app.logger.warning(f"Failed login attempt for {data['email']}")
+            return jsonify({'error': 'Invalid email or password'}), 401
+        
+        # fetch API key for the user or generate if they don't have one
+        existing_key = APIKey.query.filter_by(user_id=user.id, is_active=True).first()
+        if existing_key:
+            api_key = existing_key.key
+        else:
+            api_key = secrets.token_hex(32)  # 64-character hex string
+            new_api_key = APIKey(key=api_key, user_id=user.id)
+            db.session.add(new_api_key)
+            db.session.commit()
+        
+        # Generate JWT token
+        token = jwt.encode(
+            {
+                'user_id': user.id,
+                'exp': datetime.now(timezone.utc) + timedelta(hours=1)
+            },
+            current_app.config['SECRET_KEY'],
+            algorithm='HS256'
+        )
+        
+        # Log successful login
+        current_app.logger.info(f"Login successful for {user.email}")
+        
+        return jsonify({
+            'message': f"Login successful for {user.email}. JWT token generated and API key provided.",
+            'token': token,
+            'api_key': api_key
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Login error: {str(e)}")
+        return jsonify({'error': 'Server error during login process'}), 500
     
 
 # ------------------------------------------------------------------- #
@@ -163,6 +181,7 @@ def login():
 
 
 @auth_bp.route('/logout', methods=['POST'])
+@cross_origin()  
 @auth_required
 def logout():
     token = request.token  
@@ -188,6 +207,7 @@ def logout():
 # -------------------------------------------------------------------
 
 @auth_bp.route('/delete', methods=['DELETE'])
+@cross_origin()  
 @limiter.limit("5 per minute") 
 @auth_required
 def delete_user():
@@ -226,6 +246,7 @@ def delete_user():
 #                       UPDATE PASSWORD ENDPOINT
 # -------------------------------------------------------------------
 @auth_bp.route('/users/<int:user_id>/password', methods=['PUT'])
+@cross_origin()
 @auth_required
 def update_password(user_id):
     if request.user_id != user_id:
@@ -262,6 +283,7 @@ def update_password(user_id):
 #                       CREATE PROFILE ENDPOINT (POST)
 # ------------------------------------------------------------------- #
 @auth_bp.route('/profile', methods=['POST'])
+@cross_origin()
 @auth_required
 def create_profile():
     """
@@ -314,6 +336,7 @@ def create_profile():
 #                       UPDATE PROFILE ENDPOINT
 # ------------------------------------------------------------------- #
 @auth_bp.route('/profile', methods=['PUT'])
+@cross_origin()
 @auth_required
 def update_profile():
     """
@@ -365,6 +388,7 @@ def update_profile():
 #                       COUNTRY DETAILS ENDPOINT
 # -------------------------------------------------------------------
 @auth_bp.route('/countries/<country_name>', methods=['GET'])
+@cross_origin()
 @limiter.limit("5 per minute")
 def get_country_info(country_name):
     """
@@ -422,6 +446,7 @@ def get_country_info(country_name):
 #                       CREATE BLOG POST ENDPOINT 
 # ------------------------------------------------------------------- #
 @auth_bp.route('/blogpost', methods=['POST'])
+@cross_origin()
 @auth_required
 def create_blog_post():
     """
@@ -478,6 +503,7 @@ def create_blog_post():
 #                       UPDATE BLOG POST ENDPOINT
 # ------------------------------------------------------------------- #
 @auth_bp.route('/blogpost/<int:post_id>', methods=['PUT'])
+@cross_origin()
 @auth_required
 def update_blog_post(post_id):
     """

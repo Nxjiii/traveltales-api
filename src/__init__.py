@@ -1,12 +1,12 @@
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from src.config import Config
-from src.models import db  #db from models
+from src.models import db  
 from dotenv import load_dotenv
 import os
 from src.services.cleanup import cleanup_blacklist
 from apscheduler.schedulers.background import BackgroundScheduler
-
+from flask_cors import CORS
 
 from flask import Flask, session
 
@@ -18,6 +18,16 @@ def create_app(config_class=Config):
     # Create the Flask app instance
     app = Flask(__name__)
     app.config.from_object(config_class)
+
+    CORS(app, 
+         resources={
+             r"/api/*": {
+                 "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                 "allow_headers": ["Content-Type", "Authorization"],
+                 "supports_credentials": True
+             }
+         })
 
     # Configure the database (SQLite for simplicity)
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///../db/database.db'
