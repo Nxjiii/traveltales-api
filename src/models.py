@@ -30,12 +30,11 @@ class TokenBlacklist(db.Model):
     expires_at = db.Column(db.DateTime, nullable=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
-
 class Profile(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
     username = db.Column(db.String(80), unique=True, nullable=False)
-    profile_picture = db.Column(db.String(200))
+    full_name = db.Column(db.String(120), nullable=False)  # New field for full name
 
     user = db.relationship('User', back_populates='profile')
 

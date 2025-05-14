@@ -22,8 +22,9 @@ def auth_required(f):
             # Decode token
             decoded = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=['HS256'])
 
-            # Attach user_id to request for downstream use
+            # Attach user_id and token to request for downstream use
             request.user_id = decoded['user_id']
+            request.token = token  # <- ADD THIS LINE
 
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token has expired"}), 401

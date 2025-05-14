@@ -28,7 +28,7 @@ def test_route():
 #                       REGISTER ENDPOINT                                #
 # ------------------------------------------------------------------- #
 @auth_bp.route('/register', methods=['POST'])
-@cross_origin()  
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 @limiter.limit("5 per minute") 
 def register():
     print("Register endpoint hit!")  # Debugging line
@@ -181,7 +181,7 @@ def login():
 
 
 @auth_bp.route('/logout', methods=['POST'])
-@cross_origin()  
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 @auth_required
 def logout():
     token = request.token  
@@ -207,7 +207,7 @@ def logout():
 # -------------------------------------------------------------------
 
 @auth_bp.route('/delete', methods=['DELETE'])
-@cross_origin()  
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 @limiter.limit("5 per minute") 
 @auth_required
 def delete_user():
@@ -246,7 +246,7 @@ def delete_user():
 #                       UPDATE PASSWORD ENDPOINT
 # -------------------------------------------------------------------
 @auth_bp.route('/users/<int:user_id>/password', methods=['PUT'])
-@cross_origin()
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 @auth_required
 def update_password(user_id):
     if request.user_id != user_id:
@@ -280,10 +280,10 @@ def update_password(user_id):
 
 
 # ------------------------------------------------------------------- #
-#                       CREATE PROFILE ENDPOINT (POST)
+#                       CREATE PROFILE ENDPOINT
 # ------------------------------------------------------------------- #
 @auth_bp.route('/profile', methods=['POST'])
-@cross_origin()
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 @auth_required
 def create_profile():
     """
@@ -292,7 +292,7 @@ def create_profile():
     Request Body (JSON):
         {
             "username": "user123",
-            "profile_picture": "https://example.com/profile.jpg"
+            "full_name": "Alice Roberts"
         }
 
     Returns:
@@ -305,21 +305,19 @@ def create_profile():
         data = request.get_json()
 
         # Validate input
-        if not data or 'username' not in data:
-            return jsonify({'error': 'Username is required'}), 400
+        if not data or 'username' not in data or 'full_name' not in data:
+            return jsonify({'error': 'Username and full name are required'}), 400
 
-        # Check if profile already exists for the user
-        user_id = request.user_id  # Extracted from JWT token
+        user_id = request.user_id  # From JWT
         existing_profile = Profile.query.filter_by(user_id=user_id).first()
 
         if existing_profile:
             return jsonify({'error': 'Profile already exists for this user'}), 409
 
-        # Create new profile
         new_profile = Profile(
             user_id=user_id,
             username=data['username'],
-            profile_picture=data.get('profile_picture')
+            full_name=data['full_name']
         )
 
         db.session.add(new_profile)
@@ -332,11 +330,12 @@ def create_profile():
         current_app.logger.error(f"Error creating profile: {str(e)}")
         return jsonify({'error': 'Failed to create profile. Please try again later.'}), 500
 
+
 # ------------------------------------------------------------------- #
 #                       UPDATE PROFILE ENDPOINT
 # ------------------------------------------------------------------- #
 @auth_bp.route('/profile', methods=['PUT'])
-@cross_origin()
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 @auth_required
 def update_profile():
     """
@@ -345,7 +344,7 @@ def update_profile():
     Request Body (JSON):
         {
             "username": "new_username",
-            "profile_picture": "https://example.com/new_profile.jpg"
+            "full_name": "New Name"
         }
 
     Returns:
@@ -357,20 +356,17 @@ def update_profile():
     try:
         data = request.get_json()
 
-        # Validate input
-        if not data or 'username' not in data:
-            return jsonify({'error': 'Username is required'}), 400
+        if not data or 'username' not in data or 'full_name' not in data:
+            return jsonify({'error': 'Username and full name are required'}), 400
 
-        # Get the user's profile
-        user_id = request.user_id  # Extracted from JWT token
+        user_id = request.user_id
         profile = Profile.query.filter_by(user_id=user_id).first()
 
         if not profile:
             return jsonify({'error': 'Profile not found'}), 404
 
-        # Update profile fields
         profile.username = data['username']
-        profile.profile_picture = data.get('profile_picture', profile.profile_picture)  # Keep existing if no new picture
+        profile.full_name = data['full_name']
 
         db.session.commit()
 
@@ -383,12 +379,42 @@ def update_profile():
 
 
 
+# ------------------------------------------------------------------- #
+#                       GET USER PROFILE ENDPOINT
+# -------------------------------------------------------------------
+@auth_bp.route('/profile', methods=['GET'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+@auth_required
+def get_profile():
+    """
+    Get the authenticated user's profile.
+
+    Returns:
+        - 200: Profile data
+        - 404: Profile not found
+    """
+    try:
+        user_id = request.user_id  # From JWT
+        profile = Profile.query.filter_by(user_id=user_id).first()
+
+        if not profile:
+            return jsonify({'error': 'Profile not found'}), 404
+
+        return jsonify({
+            'username': profile.username,
+            'full_name': profile.full_name
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error fetching profile: {str(e)}")
+        return jsonify({'error': 'Failed to fetch profile. Please try again later.'}), 500
+
 
 # ------------------------------------------------------------------- #
 #                       COUNTRY DETAILS ENDPOINT
 # -------------------------------------------------------------------
 @auth_bp.route('/countries/<country_name>', methods=['GET'])
-@cross_origin()
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 @limiter.limit("5 per minute")
 def get_country_info(country_name):
     """
@@ -439,48 +465,25 @@ def get_country_info(country_name):
     else:
         return jsonify({'error': 'Country not found'}), 404
     
-
-    # src/routes.py (add these to your existing routes)
-
 # ------------------------------------------------------------------- #
 #                       CREATE BLOG POST ENDPOINT 
 # ------------------------------------------------------------------- #
 @auth_bp.route('/blogpost', methods=['POST'])
-@cross_origin()
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 @auth_required
 def create_blog_post():
-    """
-    Create a new blog post for the authenticated user.
-
-    Request Body (JSON):
-        {
-            "title": "My Trip to Japan",
-            "content": "This is the content of my blog post.",
-            "country": "Japan",
-            "date_of_visit": "2025-05-12T12:00:00Z"
-        }
-
-    Returns:
-        - 201: Blog post created successfully
-        - 400: Invalid input or missing fields
-        - 409: Blog post already exists for the user
-    """
-
     try:
         data = request.get_json()
 
-        # Validate input
         if not data or 'title' not in data or 'content' not in data or 'country' not in data or 'date_of_visit' not in data:
             return jsonify({'error': 'All fields (title, content, country, date_of_visit) are required'}), 400
 
-        # Check if the blog post already exists
-        user_id = request.user_id  # Extracted from JWT token
+        user_id = request.user_id
         existing_post = BlogPost.query.filter_by(user_id=user_id, title=data['title']).first()
 
         if existing_post:
             return jsonify({'error': 'Blog post with this title already exists for this user'}), 409
 
-        # Create new blog post
         new_blog_post = BlogPost(
             title=data['title'],
             content=data['content'],
@@ -492,7 +495,19 @@ def create_blog_post():
         db.session.add(new_blog_post)
         db.session.commit()
 
-        return jsonify({'message': 'Blog post created successfully'}), 201
+        return jsonify({
+            'message': 'Blog post created successfully',
+            'post': {
+                'id': new_blog_post.id,
+                'title': new_blog_post.title,
+                'content': new_blog_post.content,
+                'country': new_blog_post.country,
+                'date_of_visit': new_blog_post.date_of_visit.isoformat(),
+                'created_at': new_blog_post.created_at.isoformat(),
+                'updated_at': new_blog_post.updated_at.isoformat(),
+                'username': new_blog_post.user.profile.username
+            }
+        }), 201
 
     except Exception as e:
         db.session.rollback()
@@ -503,50 +518,41 @@ def create_blog_post():
 #                       UPDATE BLOG POST ENDPOINT
 # ------------------------------------------------------------------- #
 @auth_bp.route('/blogpost/<int:post_id>', methods=['PUT'])
-@cross_origin()
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
 @auth_required
 def update_blog_post(post_id):
-    """
-    Update the blog post for the authenticated user.
-
-    Request Body (JSON):
-        {
-            "title": "Updated Trip to Japan",
-            "content": "Updated content of my blog post.",
-            "country": "Japan",
-            "date_of_visit": "2025-05-13T12:00:00Z"
-        }
-
-    Returns:
-        - 200: Blog post updated successfully
-        - 400: Invalid input
-        - 404: Blog post not found
-    """
-
     try:
         data = request.get_json()
 
-        # Validate input
         if not data or 'title' not in data or 'content' not in data or 'country' not in data or 'date_of_visit' not in data:
             return jsonify({'error': 'All fields (title, content, country, date_of_visit) are required'}), 400
 
-        # Get the blog post
-        user_id = request.user_id  # Extracted from JWT token
+        user_id = request.user_id
         blog_post = BlogPost.query.filter_by(id=post_id, user_id=user_id).first()
 
         if not blog_post:
             return jsonify({'error': 'Blog post not found'}), 404
 
-        # Update blog post fields
         blog_post.title = data['title']
         blog_post.content = data['content']
         blog_post.country = data['country']
         blog_post.date_of_visit = datetime.fromisoformat(data['date_of_visit'])
 
-        # `updated_at` will be updated automatically by the database's `onupdate` functionality
         db.session.commit()
 
-        return jsonify({'message': 'Blog post updated successfully'}), 200
+        return jsonify({
+            'message': 'Blog post updated successfully',
+            'post': {
+                'id': blog_post.id,
+                'title': blog_post.title,
+                'content': blog_post.content,
+                'country': blog_post.country,
+                'date_of_visit': blog_post.date_of_visit.isoformat(),
+                'created_at': blog_post.created_at.isoformat(),
+                'updated_at': blog_post.updated_at.isoformat(),
+                'username': blog_post.user.profile.username  
+            }
+        }), 200
 
     except Exception as e:
         db.session.rollback()
