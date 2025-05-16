@@ -93,7 +93,7 @@ def register():
         token = jwt.encode(
             {
                 'user_id': new_user.id,
-                'exp': datetime.now(timezone.utc) + timedelta(hours=1)
+                'exp': datetime.now(timezone.utc) + timedelta(hours=12)
             },
             current_app.config['SECRET_KEY'],
             algorithm='HS256'
@@ -156,7 +156,7 @@ def login():
         token = jwt.encode(
             {
                 'user_id': user.id,
-                'exp': datetime.now(timezone.utc) + timedelta(hours=1)
+                'exp': datetime.now(timezone.utc) + timedelta(hours=12)
             },
             current_app.config['SECRET_KEY'],
             algorithm='HS256'
@@ -314,6 +314,9 @@ def create_profile():
         if existing_profile:
             return jsonify({'error': 'Profile already exists for this user'}), 409
 
+        if Profile.query.filter_by(username=data['username']).first():
+            return jsonify({'error': 'Username already taken'}), 409
+        
         new_profile = Profile(
             user_id=user_id,
             username=data['username'],
@@ -380,7 +383,7 @@ def update_profile():
 
 
 # ------------------------------------------------------------------- #
-#                       GET USER PROFILE ENDPOINT
+#                       GET USERS OWN PROFILE ENDPOINT
 # -------------------------------------------------------------------
 @auth_bp.route('/profile', methods=['GET'])
 @cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
@@ -409,13 +412,78 @@ def get_profile():
         current_app.logger.error(f"Error fetching profile: {str(e)}")
         return jsonify({'error': 'Failed to fetch profile. Please try again later.'}), 500
 
+# ------------------------------------------------------------------- #
+#                       SEARCH USER BY USERNAME ENDPOINT 
+# -------------------------------------------------------------------
+@auth_bp.route('/search/profiles', methods=['GET'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+def search_profiles():
+    """
+    Search for user profiles with partial username matches.
+    
+    Query parameter:
+        - q: Search query string
+        
+    Returns:
+        - 200: List of matching profiles
+        - 500: Server error
+    """
+    try:
+        search_query = request.args.get('q', '')
+        if not search_query:
+            return jsonify({'profiles': []}), 200
+            
+
+        matching_profiles = Profile.query.filter(
+            Profile.username.ilike(f'%{search_query}%')
+        ).all()
+        
+        profiles_data = [
+            {
+                'username': profile.username,
+                'full_name': profile.full_name
+            }
+            for profile in matching_profiles
+        ]
+        
+        return jsonify({'profiles': profiles_data}), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error searching profiles: {str(e)}")
+        return jsonify({'error': 'Failed to search profiles. Please try again later.'}), 500
+        
+@auth_bp.route('/profile/<username>', methods=['GET'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+def get_profile_by_username(username):
+    """
+    Get a user's profile by their username.
+
+    Returns:
+        - 200: Profile data
+        - 404: Profile not found
+    """
+    try:
+        profile = Profile.query.filter_by(username=username).first()
+
+        if not profile:
+            return jsonify({'error': 'Profile not found'}), 404
+
+        return jsonify({
+            'username': profile.username,
+            'full_name': profile.full_name
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error fetching profile by username: {str(e)}")
+        return jsonify({'error': 'Failed to fetch profile. Please try again later.'}), 500
+
 
 # ------------------------------------------------------------------- #
 #                       COUNTRY DETAILS ENDPOINT
 # -------------------------------------------------------------------
 @auth_bp.route('/countries/<country_name>', methods=['GET'])
 @cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
-@limiter.limit("5 per minute")
+@limiter.limit("40 per minute")
 def get_country_info(country_name):
     """
     Fetch country details from the RestCountries API.
@@ -515,6 +583,71 @@ def create_blog_post():
         return jsonify({'error': 'Failed to create blog post. Please try again later.'}), 500
 
 # ------------------------------------------------------------------- #
+#                       GET BLOG POST BY ID ENDPOINT
+# ------------------------------------------------------------------- #
+@auth_bp.route('/blogpost/<int:post_id>', methods=['GET'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+def get_blog_post(post_id):
+    try:
+        blog_post = BlogPost.query.get(post_id)
+
+        if not blog_post:
+            return jsonify({'error': 'Blog post not found'}), 404
+
+        return jsonify({
+            'id': blog_post.id,
+            'title': blog_post.title,
+            'content': blog_post.content,
+            'country': blog_post.country,
+            'date_of_visit': blog_post.date_of_visit.isoformat(),
+            'created_at': blog_post.created_at.isoformat(),
+            'updated_at': blog_post.updated_at.isoformat(),
+            'username': blog_post.user.profile.username
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error fetching blog post: {str(e)}")
+        return jsonify({'error': 'Failed to retrieve blog post. Please try again later.'}), 500
+
+
+# ------------------------------------------------------------------- #
+#                   GET PAGINATED BLOG POSTS ENDPOINT
+# ------------------------------------------------------------------- #
+@auth_bp.route('/blogposts', methods=['GET'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+def get_paginated_blog_posts():
+    try:
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 15))
+        offset = (page - 1) * limit
+
+        posts = (
+            BlogPost.query
+            .order_by(BlogPost.updated_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        return jsonify([
+            {
+                'id': post.id,
+                'title': post.title,
+                'content': post.content,
+                'country': post.country,
+                'date_of_visit': post.date_of_visit.isoformat(),
+                'created_at': post.created_at.isoformat(),
+                'updated_at': post.updated_at.isoformat(),
+                'username': post.user.profile.username
+            }
+            for post in posts
+        ]), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error fetching blog posts: {str(e)}")
+        return jsonify({'error': 'Failed to load blog posts.'}), 500
+
+# ------------------------------------------------------------------- #
 #                       UPDATE BLOG POST ENDPOINT
 # ------------------------------------------------------------------- #
 @auth_bp.route('/blogpost/<int:post_id>', methods=['PUT'])
@@ -558,3 +691,171 @@ def update_blog_post(post_id):
         db.session.rollback()
         current_app.logger.error(f"Error updating blog post: {str(e)}")
         return jsonify({'error': 'Failed to update blog post. Please try again later.'}), 500
+
+# ------------------------------------------------------------------- #
+#                       DELETE BLOG POST ENDPOINT
+# ------------------------------------------------------------------- #
+@auth_bp.route('/blogpost/<int:post_id>', methods=['DELETE'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+@auth_required
+def delete_blog_post(post_id):
+    try:
+        user_id = request.user_id
+        blog_post = BlogPost.query.filter_by(id=post_id, user_id=user_id).first()
+
+        if not blog_post:
+            return jsonify({'error': 'Blog post not found'}), 404
+
+        db.session.delete(blog_post)
+        db.session.commit()
+
+        return jsonify({'message': 'Blog post deleted successfully'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting blog post: {str(e)}")
+        return jsonify({'error': 'Failed to delete blog post. Please try again later.'}), 500
+
+# ------------------------------------------------------------------- #
+#                GET BLOG POSTS BY COUNTRY ENDPOINT
+# ------------------------------------------------------------------- #
+@auth_bp.route('/blogposts/country/<country>', methods=['GET'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+def get_blog_posts_by_country(country):
+    """
+    Get all blog posts for a specific country (case-insensitive, trimmed).
+
+    Returns:
+        - 200: List of blog posts for the country (empty array if none)
+    """
+    try:
+        trimmed_country = country.strip()
+        posts = (
+            BlogPost.query
+            .filter(BlogPost.country.ilike(trimmed_country))
+            .order_by(BlogPost.updated_at.desc())
+            .all()
+        )
+
+        return jsonify([
+            {
+                'id': post.id,
+                'title': post.title,
+                'content': post.content,
+                'country': post.country,
+                'date_of_visit': post.date_of_visit.isoformat(),
+                'created_at': post.created_at.isoformat(),
+                'updated_at': post.updated_at.isoformat(),
+                'username': post.user.profile.username if post.user and post.user.profile else None
+            }
+            for post in posts
+        ]), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error fetching blog posts by country: {str(e)}")
+        return jsonify({'error': 'Failed to fetch blog posts for this country.'}), 500
+    
+    # ------------------------------------------------------------------- #
+#                       FOLLOW A USER ENDPOINT
+# ------------------------------------------------------------------- #
+@auth_bp.route('/follow/<username>', methods=['POST'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+@auth_required
+def follow_user(username):
+    """Authenticated user follows another user by username."""
+    try:
+        follower = User.query.get(request.user_id)
+        to_follow_profile = Profile.query.filter_by(username=username).first()
+        if not to_follow_profile:
+            return jsonify({'error': 'User not found'}), 404
+        to_follow = to_follow_profile.user
+        if to_follow.id == follower.id:
+            return jsonify({'error': "You can't follow yourself."}), 400
+        if follower.is_following(to_follow):
+            return jsonify({'error': 'Already following this user.'}), 409
+        follower.following.append(to_follow)
+        db.session.commit()
+        return jsonify({'message': f'You are now following {username}.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error following user: {str(e)}")
+        return jsonify({'error': 'Failed to follow user.'}), 500
+
+# ------------------------------------------------------------------- #
+#                       UNFOLLOW A USER ENDPOINT
+# ------------------------------------------------------------------- #
+@auth_bp.route('/unfollow/<username>', methods=['DELETE'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+@auth_required
+def unfollow_user(username):
+    """Authenticated user unfollows another user by username."""
+    try:
+        follower = User.query.get(request.user_id)
+        to_unfollow_profile = Profile.query.filter_by(username=username).first()
+        if not to_unfollow_profile:
+            return jsonify({'error': 'User not found'}), 404
+        to_unfollow = to_unfollow_profile.user
+        if to_unfollow.id == follower.id:
+            return jsonify({'error': "You can't unfollow yourself."}), 400
+        if not follower.is_following(to_unfollow):
+            return jsonify({'error': 'You are not following this user.'}), 409
+        follower.following.remove(to_unfollow)
+        db.session.commit()
+        return jsonify({'message': f'You have unfollowed {username}.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error unfollowing user: {str(e)}")
+        return jsonify({'error': 'Failed to unfollow user.'}), 500
+
+# ------------------------------------------------------------------- #
+#                       GET FOLLOWERS ENDPOINT
+# ------------------------------------------------------------------- #
+@auth_bp.route('/followers/<username>', methods=['GET'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+def get_followers(username):
+    """Get a list of followers for a user by username."""
+    try:
+        profile = Profile.query.filter_by(username=username).first()
+        if not profile:
+            return jsonify({'error': 'User not found'}), 404
+        user = profile.user
+        followers = user.followers.all()
+        return jsonify({
+            'followers': [
+                {
+                    'username': follower.profile.username if follower.profile else None,
+                    'full_name': follower.profile.full_name if follower.profile else None
+                }
+                for follower in followers
+            ]
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Error fetching followers: {str(e)}")
+        return jsonify({'error': 'Failed to fetch followers.'}), 500
+
+# ------------------------------------------------------------------- #
+#                       GET FOLLOWING ENDPOINT
+# ------------------------------------------------------------------- #
+@auth_bp.route('/following/<username>', methods=['GET'])
+@cross_origin(supports_credentials=True, origins=["http://localhost:3000", "http://127.0.0.1:3000"])
+def get_following(username):
+    """Get a list of users that the given user is following."""
+    try:
+        profile = Profile.query.filter_by(username=username).first()
+        if not profile:
+            return jsonify({'error': 'User not found'}), 404
+        user = profile.user
+        following = user.following.all()
+        return jsonify({
+            'following': [
+                {
+                    'username': followed.profile.username if followed.profile else None,
+                    'full_name': followed.profile.full_name if followed.profile else None
+                }
+                for followed in following
+            ]
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Error fetching following: {str(e)}")
+        return jsonify({'error': 'Failed to fetch following.'}), 500
+
